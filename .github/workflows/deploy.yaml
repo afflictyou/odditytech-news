@@ -1,0 +1,88 @@
+# .github/workflows/deploy.yml
+#
+# Auto-deploy odditytech.news to Namecheap public_html on merge to main.
+# Implements the Option 4 pipeline approved on SIG-109.
+#
+# Required GitHub Actions secrets (already provisioned by board on SIG-109):
+#   SFTP_HOST        - Namecheap server hostname (e.g. serverNNN.web-hosting.com)
+#   SFTP_USERNAME    - jailed cPanel FTP user, scoped to public_html
+#   SFTP_PASSWORD    - that user's password
+#   SFTP_TARGET_DIR  - absolute server path to public_html
+#                      (e.g. /home/oddimfjz/public_html)
+#
+# Protocol: FTPS on port 21 with strict TLS cert verification. This is the
+# standard path for Namecheap-provisioned FTP users on shared hosting and
+# does NOT require an SSH key or the master cPanel account.
+#
+# Branch protection on `main` enforces PR review before any deploy runs.
+
+name: Deploy to odditytech.news
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '.github/**'
+      - '**/README.md'
+      - '**/DEPLOY.md'
+      - '.gitignore'
+      - 'docs/**'
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-prod-odditytech-news
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: FTPS deploy to public_html
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repo at the commit being deployed
+        uses: actions/checkout@v4
+
+      - name: FTPS deploy to Namecheap public_html
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.SFTP_HOST }}
+          username: ${{ secrets.SFTP_USERNAME }}
+          password: ${{ secrets.SFTP_PASSWORD }}
+          server-dir: ${{ secrets.SFTP_TARGET_DIR }}/
+          protocol: ftps
+          port: 21
+          security: strict
+          state-name: .ftp-deploy-sync-state.json
+          dry-run: false
+          log-level: standard
+          # Files in the repo that should NEVER reach the live server.
+          # Extend this list when adding tooling (build configs, docs, secrets)
+          # that lives in the repo but doesn't belong on prod.
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/.github/**
+            **/.env
+            **/.env.*
+            **/.DS_Store
+            **/node_modules/**
+            **/README.md
+            **/DEPLOY.md
+            **/.gitignore
+            **/docs/**
+            **/.vscode/**
+            **/.idea/**
+
+      - name: Write deploy summary
+        if: always()
+        run: |
+          {
+            echo "### Deploy to odditytech.news"
+            echo ""
+            echo "- Commit: \`${{ github.sha }}\`"
+            echo "- Branch: \`${{ github.ref_name }}\`"
+            echo "- Target dir: \`${{ secrets.SFTP_TARGET_DIR }}\`"
+            echo "- Event: \`${{ github.event_name }}\` (actor: \`${{ github.actor }}\`)"
+            echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          } >> "$GITHUB_STEP_SUMMARY"
