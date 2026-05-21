@@ -1,0 +1,23 @@
+# Never commit credentials or sensitive files
+.env
+.env.*
+*.key
+*.pem
+config.local.php
+
+# Logs and temp files
+error_log
+*.log
+tmp/
+*.swp
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+
+# Server artifacts
+.ftpquota
