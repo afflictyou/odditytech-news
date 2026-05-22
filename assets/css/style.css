@@ -6,7 +6,7 @@
    Adds v1 toolbar: search input, view toggle (grid / compact / list),
    tag-filter chips, and a responsive grid down to ~375 px.
    ========================================================================= */
-
+/* pipeline smoke test 2026-05-21 */
 /* ---- Reset / tokens ----------------------------------------------------- */
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
