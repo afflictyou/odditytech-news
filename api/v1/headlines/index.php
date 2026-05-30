@@ -43,12 +43,64 @@ try {
 }
 
 if ($method === 'GET') {
+    // Strict YYYY-MM-DD parser: rejects non-calendar dates ("2026-02-30") and any other shape.
+    $parseIsoDate = static function (string $raw): ?DateTimeImmutable {
+        if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $raw, $m)) {
+            return null;
+        }
+        [$_, $y, $mo, $d] = $m;
+        if (!checkdate((int)$mo, (int)$d, (int)$y)) {
+            return null;
+        }
+        $dt = DateTimeImmutable::createFromFormat('!Y-m-d', $raw, new DateTimeZone('UTC'));
+        return $dt === false ? null : $dt;
+    };
+
     $where = [];
     $params = [];
 
     if (isset($_GET['canonical_paper_url']) && $_GET['canonical_paper_url'] !== '') {
         $where[] = 'canonical_paper_url = :canonical_paper_url';
         $params[':canonical_paper_url'] = (string)$_GET['canonical_paper_url'];
+    }
+
+    // since=YYYY-MM-DD — inclusive lower bound on published_at (start of day, UTC).
+    if (isset($_GET['since']) && $_GET['since'] !== '') {
+        $since = $parseIsoDate((string)$_GET['since']);
+        if ($since === null) {
+            http_response_code(400);
+            echo json_encode(['error' => "Invalid 'since' parameter: must be a calendar date in YYYY-MM-DD format"]);
+            exit;
+        }
+        $where[] = 'published_at >= :since';
+        $params[':since'] = $since->format('Y-m-d 00:00:00');
+    }
+
+    // until=YYYY-MM-DD — inclusive upper bound on published_at (end of day, UTC).
+    if (isset($_GET['until']) && $_GET['until'] !== '') {
+        $until = $parseIsoDate((string)$_GET['until']);
+        if ($until === null) {
+            http_response_code(400);
+            echo json_encode(['error' => "Invalid 'until' parameter: must be a calendar date in YYYY-MM-DD format"]);
+            exit;
+        }
+        $where[] = 'published_at <= :until';
+        $params[':until'] = $until->format('Y-m-d 23:59:59');
+    }
+
+    // order=published_at[:asc|:desc] — default :desc. Only published_at is sortable today.
+    $orderBy = 'published_at DESC';
+    if (isset($_GET['order']) && $_GET['order'] !== '') {
+        $raw = (string)$_GET['order'];
+        $parts = explode(':', $raw, 2);
+        $field = $parts[0];
+        $dir = strtolower($parts[1] ?? 'desc');
+        if ($field !== 'published_at' || ($dir !== 'asc' && $dir !== 'desc')) {
+            http_response_code(400);
+            echo json_encode(['error' => "Invalid 'order' parameter: must be 'published_at' with optional ':asc' or ':desc' suffix"]);
+            exit;
+        }
+        $orderBy = 'published_at ' . strtoupper($dir);
     }
 
     $sql = '
@@ -59,7 +111,7 @@ if ($method === 'GET') {
     if ($where) {
         $sql .= ' WHERE ' . implode(' AND ', $where);
     }
-    $sql .= ' ORDER BY published_at DESC LIMIT 500';
+    $sql .= ' ORDER BY ' . $orderBy . ' LIMIT 500';
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
@@ -67,6 +119,13 @@ if ($method === 'GET') {
 
     foreach ($rows as &$row) {
         $row['id'] = (int)$row['id'];
+        if (!empty($row['published_at'])) {
+            // Persisted as MySQL DATETIME in UTC; surface as ISO-8601 with explicit Z offset.
+            $dt = DateTimeImmutable::createFromFormat('Y-m-d H:i:s', (string)$row['published_at'], new DateTimeZone('UTC'));
+            if ($dt !== false) {
+                $row['published_at'] = $dt->format('Y-m-d\TH:i:s\Z');
+            }
+        }
     }
     unset($row);
 
