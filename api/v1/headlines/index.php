@@ -1,4 +1,12 @@
 <?php
+// SIG-252: deploy-time OPCache invalidation. LSAPI persists bytecode across
+// requests; when the FTPS deploy replaces this file, the running workers may
+// still serve old bytecode until OPCache notices. Invalidating self up-front
+// is cheap and forces a re-parse on the next hit if disk content changed.
+if (function_exists('opcache_invalidate')) {
+    @opcache_invalidate(__FILE__, true);
+}
+
 require_once __DIR__ . '/../_lib/tag_resolver.php';
 
 header('Content-Type: application/json');

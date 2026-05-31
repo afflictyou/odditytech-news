@@ -3,6 +3,15 @@ DirectoryIndex index.php index.html
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
+
+    # SIG-252: short-circuit any /api/* request before the SPA catch-all
+    # runs. Using a dedicated RewriteRule with [L] is more reliable on
+    # LiteSpeed/LSAPI than a leading RewriteCond, which the cached config
+    # appears to ignore in some shared-hosting setups. The real api/*.php
+    # file is served, or Apache returns 404 - either is correct, and
+    # neither is "served the homepage as JSON".
+    RewriteRule ^api/ - [L]
+
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteRule ^ index.php [QSA,L]
