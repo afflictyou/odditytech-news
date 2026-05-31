@@ -6,7 +6,7 @@
 
 The SSCI pipeline accepts free-form tags on `POST /api/v1/headlines/`, but cluster detection and weekly digest filtering need a stable vocabulary. This document defines that vocabulary and lists every alias that resolves to it.
 
-The runtime alias map is `config/canonical_tags.json`. **Edit that file, not the tables below** — the tables here are generated from the JSON to keep humans and machines reading the same map. After editing the JSON, regenerate this doc (or update by hand) and run the normalization migration (`docs/migrations/0004_normalize_tags.php`) against any environment whose `headlines` table you want re-canonicalised.
+The runtime alias map is `config/canonical_tags.json`. **Edit that file, not the tables below** — the tables here are generated from the JSON to keep humans and machines reading the same map. After editing the JSON, regenerate this doc (or update by hand), regenerate `docs/migrations/0004_normalize_tags.sql` from the JSON (the migration file is mechanically generated; the in-repo regenerator script lives alongside SIG-181's verification scripts), and run the migration in phpMyAdmin against any environment whose `headlines` table you want re-canonicalised.
 
 ---
 
@@ -103,8 +103,9 @@ A tag becoming "unmapped" is not a failure mode — it is a signal that either (
    - To add a canonical, append to `canonical_tags` with `slug`/`display`/`description`.
    - To add an alias, add a key in `aliases` mapping the source slug to an existing canonical slug.
 2. Update the table in this document so humans can read the same map.
-3. Run `php docs/migrations/0004_normalize_tags.php` against any environment whose `headlines` table you want re-canonicalised. The migration is idempotent — re-running it after only adding an alias is safe.
-4. (Optional) Hit `GET /api/v1/tags?include_aliases=1` to confirm the deployed runtime sees the new entry.
+3. Regenerate `docs/migrations/0004_normalize_tags.sql` from the JSON (the file is mechanically generated; the regenerator script lives in the SIG-181 workspace and is in the issue thread).
+4. Open the regenerated `0004_normalize_tags.sql` in phpMyAdmin against any environment whose `headlines` table you want re-canonicalised. The migration is idempotent — re-running it after only adding an alias is safe.
+5. (Optional) Hit `GET /api/v1/tags?include_aliases=1` to confirm the deployed runtime sees the new entry.
 
 ---
 
