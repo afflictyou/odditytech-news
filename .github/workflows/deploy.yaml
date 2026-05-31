@@ -98,7 +98,7 @@ jobs:
           fi
           status=$(curl -sS -o /tmp/opcache_reset.json -w '%{http_code}' \
             -H "X-API-Key: ${INGEST_API_KEY}" \
-            'https://odditytech.news/api/v1/_meta/opcache_reset.php' || echo "000")
+            'https://odditytech.news/api/v1/ops/opcache_reset.php' || echo "000")
           echo "opcache_reset HTTP ${status}"
           cat /tmp/opcache_reset.json || true
           echo
