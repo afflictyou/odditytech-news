@@ -81,57 +81,6 @@ jobs:
             **/.vscode/**
             **/.idea/**
 
-      - name: Diagnose FTPS server state (SIG-252)
-        # TEMP - delete once SIG-252 is closed.
-        # Independently fetches a few key files from the FTPS server and
-        # prints their size/sha so we can verify that the FTP-Deploy-Action
-        # actually placed the bytes on disk vs. silently no-oping.
-        if: always()
-        continue-on-error: true
-        env:
-          SFTP_HOST: ${{ secrets.SFTP_HOST }}
-          SFTP_USERNAME: ${{ secrets.SFTP_USERNAME }}
-          SFTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
-          SFTP_TARGET_DIR: ${{ secrets.SFTP_TARGET_DIR }}
-        run: |
-          set +e
-          echo "::group::Repo-side hashes"
-          for f in api/v1/headlines/index.php api/v1/healthz.php api/v1/ops/opcache_reset.php; do
-            if [ -f "$f" ]; then
-              sha=$(sha256sum "$f" | awk '{print $1}')
-              size=$(wc -c < "$f")
-              echo "REPO  $sha  ${size}B  $f"
-            else
-              echo "REPO  <missing>  $f"
-            fi
-          done
-          echo "::endgroup::"
-
-          echo "::group::Server-side fetch via curl --ftp-ssl"
-          for path in api/v1/headlines/index.php api/v1/healthz.php api/v1/ops/opcache_reset.php api/v1/headlines/.htaccess .ftp-deploy-sync-state.json; do
-            out=/tmp/srv_$(echo "$path" | tr '/' '_')
-            http=$(curl -sS --ftp-ssl --ssl-reqd \
-              --user "${SFTP_USERNAME}:${SFTP_PASSWORD}" \
-              -o "$out" -w '%{http_code} %{size_download}' \
-              "ftp://${SFTP_HOST}${SFTP_TARGET_DIR}/${path}" 2>/dev/null)
-            if [ -s "$out" ]; then
-              sha=$(sha256sum "$out" | awk '{print $1}')
-              echo "SERV  $sha  ${http}  $path"
-            else
-              echo "SERV  <empty-or-missing>  ${http}  $path"
-            fi
-          done
-          echo "::endgroup::"
-
-          echo "::group::Directory listings"
-          for dir in api/v1 api/v1/headlines api/v1/ops; do
-            echo "--- $dir ---"
-            curl -sS --ftp-ssl --ssl-reqd \
-              --user "${SFTP_USERNAME}:${SFTP_PASSWORD}" \
-              "ftp://${SFTP_HOST}${SFTP_TARGET_DIR}/${dir}/" 2>&1 | head -20
-          done
-          echo "::endgroup::"
-
       - name: Reset PHP OPcache on production (best-effort)
         # SIG-252: shared LiteSpeed/LSAPI caches PHP bytecode across requests.
         # After the FTPS sync replaces api/*.php, ping the dedicated reset
