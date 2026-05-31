@@ -10,6 +10,13 @@
 #   SFTP_TARGET_DIR  - absolute server path to public_html
 #                      (e.g. /home/oddimfjz/public_html)
 #
+# Optional secret (added for SIG-252):
+#   INGEST_API_KEY   - same key the /api/v1/* endpoints require; used to call
+#                      api/v1/_meta/opcache_reset.php after deploy so LSAPI
+#                      drops cached bytecode for replaced files. If absent or
+#                      the endpoint is missing, the post-deploy step is a no-op
+#                      and the deploy still succeeds.
+#
 # Protocol: FTPS on port 21 with strict TLS cert verification. This is the
 # standard path for Namecheap-provisioned FTP users on shared hosting and
 # does NOT require an SSH key or the master cPanel account.
@@ -73,6 +80,28 @@ jobs:
             **/docs/**
             **/.vscode/**
             **/.idea/**
+
+      - name: Reset PHP OPcache on production (best-effort)
+        # SIG-252: shared LiteSpeed/LSAPI caches PHP bytecode across requests.
+        # After the FTPS sync replaces api/*.php, ping the dedicated reset
+        # endpoint so workers drop stale entries instead of waiting for the
+        # next opcache.revalidate cycle. Skipped silently if the API key
+        # secret isn't configured; never fails the deploy.
+        if: success()
+        continue-on-error: true
+        env:
+          INGEST_API_KEY: ${{ secrets.INGEST_API_KEY }}
+        run: |
+          if [ -z "${INGEST_API_KEY:-}" ]; then
+            echo "INGEST_API_KEY not configured; skipping OPcache reset."
+            exit 0
+          fi
+          status=$(curl -sS -o /tmp/opcache_reset.json -w '%{http_code}' \
+            -H "X-API-Key: ${INGEST_API_KEY}" \
+            'https://odditytech.news/api/v1/_meta/opcache_reset.php' || echo "000")
+          echo "opcache_reset HTTP ${status}"
+          cat /tmp/opcache_reset.json || true
+          echo
 
       - name: Write deploy summary
         if: always()
