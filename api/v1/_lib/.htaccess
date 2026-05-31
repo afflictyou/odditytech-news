@@ -1,0 +1,3 @@
+# Internal PHP includes — not directly servable.
+Options -Indexes
+Require all denied
