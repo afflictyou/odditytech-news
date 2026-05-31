@@ -3,6 +3,14 @@ DirectoryIndex index.php index.html
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
+
+    # SIG-252: never rewrite /api/* into the SPA. Without this exclusion,
+    # newly deployed PHP files under api/v1/ (which Apache/LiteSpeed has not
+    # yet stat-cache-refreshed) get caught by the catch-all below, served as
+    # the homepage HTML, and look like a deploy failure. API paths should
+    # serve the real file or 404 on their own.
+    RewriteCond %{REQUEST_URI} !^/api/
+
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteRule ^ index.php [QSA,L]
