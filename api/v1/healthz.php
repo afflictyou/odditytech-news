@@ -13,3 +13,4 @@ echo json_encode([
     'php_version'  => PHP_VERSION,
     'opcache_on'   => function_exists('opcache_get_status') ? (bool)@opcache_get_status(false)['opcache_enabled'] : null,
 ]);
+// Test comment
