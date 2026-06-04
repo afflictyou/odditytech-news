@@ -1,11 +1,13 @@
 <?php
-// SIG-252: deploy-time OPcache invalidation. LSAPI persists bytecode across
+// SIG-252: deploy-time OPCache invalidation. LSAPI persists bytecode across
 // requests; when the FTPS deploy replaces this file, the running workers may
-// still serve old bytecode until OPcache notices. Invalidating self up-front
+// still serve old bytecode until OPCache notices. Invalidating self up-front
 // is cheap and forces a re-parse on the next hit if disk content changed.
 if (function_exists('opcache_invalidate')) {
     @opcache_invalidate(__FILE__, true);
 }
+
+require_once __DIR__ . '/../_lib/tag_resolver.php';
 
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
@@ -289,13 +291,24 @@ $stmt = $pdo->prepare('
     VALUES (:title, :summary, :source_url, :source_name, :category, :tags, :published_at, :canonical_paper_url)
 ');
 
+// SIG-181: resolve free-form tags through the canonical alias map before
+// persisting. Unmapped tags pass through. The persisted column is still a
+// comma-separated string for backward compatibility with the existing reader.
+$normalizedTags = null;
+if (isset($body['tags'])) {
+    $list = tag_normalize_list($body['tags']);
+    if ($list) {
+        $normalizedTags = substr(implode(',', $list), 0, 500);
+    }
+}
+
 $stmt->execute([
     ':title'               => substr($body['title'], 0, 500),
     ':summary'             => $body['summary'],
     ':source_url'          => substr($body['source_url'], 0, 2083),
     ':source_name'         => substr($body['source_name'], 0, 255),
     ':category'            => substr($body['category'], 0, 100),
-    ':tags'                => isset($body['tags']) ? substr(implode(',', (array)$body['tags']), 0, 500) : null,
+    ':tags'                => $normalizedTags,
     ':published_at'        => $body['published_at'] ?? date('Y-m-d H:i:s'),
     ':canonical_paper_url' => $canonicalPaperUrl,
 ]);
