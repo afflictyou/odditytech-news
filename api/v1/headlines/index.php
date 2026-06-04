@@ -30,7 +30,7 @@ if (!$apiKey || !hash_equals($apiKey, $provided)) {
 }
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-if ($method !== 'POST' && $method !== 'GET') {
+if ($method !== 'POST' && $method !== 'GET' && $method !== 'PATCH') {
     http_response_code(405);
     echo json_encode(['error' => 'Method not allowed']);
     exit;
@@ -139,6 +139,123 @@ if ($method === 'GET') {
 
     http_response_code(200);
     echo json_encode(['headlines' => $rows, 'count' => count($rows)]);
+    exit;
+}
+
+if ($method === 'PATCH') {
+    // SIG-263: partial row update for backfills. Whitelist columns explicitly so
+    // adding new writable fields is a one-line change; nothing else is exposed.
+    // Absent key -> leave column alone; JSON null -> clear (if nullable); empty
+    // string -> reject (mirror POST's canonical_paper_url contract).
+    $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+    if ($id <= 0) {
+        http_response_code(400);
+        echo json_encode(['error' => "Missing or invalid 'id' query parameter"]);
+        exit;
+    }
+
+    $body = json_decode(file_get_contents('php://input'), true);
+    if (!is_array($body)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Invalid JSON']);
+        exit;
+    }
+
+    $writable = [
+        'canonical_paper_url' => [
+            'max'                  => 512,
+            'nullable'             => true,
+            'reject_empty_string'  => true,
+        ],
+    ];
+
+    $sets = [];
+    $params = [':id' => $id];
+    $updated = [];
+    foreach ($writable as $col => $rules) {
+        if (!array_key_exists($col, $body)) {
+            continue;
+        }
+        $val = $body[$col];
+
+        if ($val === null) {
+            if (empty($rules['nullable'])) {
+                http_response_code(400);
+                echo json_encode(['error' => "$col cannot be null"]);
+                exit;
+            }
+            $sets[] = "$col = NULL";
+            $updated[] = $col;
+            continue;
+        }
+
+        if (!is_string($val) && !is_numeric($val)) {
+            http_response_code(400);
+            echo json_encode(['error' => "$col must be a string or null"]);
+            exit;
+        }
+
+        $val = (string)$val;
+        if ($val === '' && !empty($rules['reject_empty_string'])) {
+            http_response_code(400);
+            echo json_encode(['error' => "$col cannot be empty; send null to clear"]);
+            exit;
+        }
+        if (isset($rules['max'])) {
+            $val = substr($val, 0, (int)$rules['max']);
+        }
+
+        $sets[] = "$col = :$col";
+        $params[":$col"] = $val;
+        $updated[] = $col;
+    }
+
+    if (!$sets) {
+        http_response_code(400);
+        echo json_encode([
+            'error'   => 'No writable fields supplied',
+            'allowed' => array_keys($writable),
+        ]);
+        exit;
+    }
+
+    // 404 before UPDATE so callers can distinguish missing row from no-op write.
+    $exists = $pdo->prepare('SELECT id FROM headlines WHERE id = :id');
+    $exists->execute([':id' => $id]);
+    if (!$exists->fetchColumn()) {
+        http_response_code(404);
+        echo json_encode(['error' => 'Headline not found', 'id' => $id]);
+        exit;
+    }
+
+    $stmt = $pdo->prepare('UPDATE headlines SET ' . implode(', ', $sets) . ' WHERE id = :id');
+    $stmt->execute($params);
+
+    $sel = $pdo->prepare('
+        SELECT id, title, summary, source_url, source_name, category, tags,
+               published_at, canonical_paper_url
+        FROM headlines
+        WHERE id = :id
+    ');
+    $sel->execute([':id' => $id]);
+    $row = $sel->fetch(PDO::FETCH_ASSOC);
+    if ($row) {
+        $row['id'] = (int)$row['id'];
+        if (!empty($row['published_at'])) {
+            $dt = DateTimeImmutable::createFromFormat('Y-m-d H:i:s', (string)$row['published_at'], new DateTimeZone('UTC'));
+            if ($dt !== false) {
+                $row['published_at'] = $dt->format('Y-m-d\TH:i:s\Z');
+            }
+        }
+    }
+
+    http_response_code(200);
+    echo json_encode([
+        'success'  => true,
+        'id'       => $id,
+        'updated'  => $updated,
+        'headline' => $row,
+    ]);
     exit;
 }
 
