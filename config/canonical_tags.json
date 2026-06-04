@@ -30,7 +30,7 @@
     {"slug":"materials-science","display":"Materials Science","description":"Novel materials, graphene, polymers, nanotechnology, dielectrics."},
     {"slug":"chemistry","display":"Chemistry","description":"Chemistry results not better placed under materials-science or proteins."},
     {"slug":"energy","display":"Energy","description":"Energy efficiency, energy economics, AI power use, Jevons paradox."},
-    {"slug":"memory-systems","display":"Memory Systems","description":"Computing memory architectures: KV-cache, memory chips, memory-compute fusion."},
+    {"slug":"memory-systems","display":"Memory Systems","description":"Computing memory architectures: memory chips, memory-compute fusion, adaptive memory hierarchies. (KV-cache is an LLM-internal mechanism and aliases to llm, not memory-systems.)"},
     {"slug":"space","display":"Space","description":"Space, astrobiology, SETI, exoplanets."}
   ],
   "aliases": {
