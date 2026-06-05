@@ -22,4 +22,4 @@ CREATE TABLE IF NOT EXISTS digests (
   UNIQUE KEY uk_slug (slug),
   KEY idx_status_published_at (status, published_at DESC),
   KEY idx_published_at (published_at DESC)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
