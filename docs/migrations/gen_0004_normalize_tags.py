@@ -27,6 +27,12 @@ REPLACE-d, so 'memristor,neuromorphic' becomes 'neuromorphic', not
 Case-sensitivity: REPLACE() is byte-exact while FIND_IN_SET is
 collation-insensitive, so the generated SQL lower-cases headlines.tags up
 front (Step 2b) to eliminate that mismatch.
+
+Collation: tag_aliases is pinned to utf8mb4_unicode_ci because that is the
+collation headlines (and digests) use in production -- verified via
+information_schema on 2026-06-05. Any new auxiliary table in this database
+should also use utf8mb4_unicode_ci so cross-table FIND_IN_SET / JOIN clauses
+do not need an explicit COLLATE on every reference.
 """
 import json
 from pathlib import Path
@@ -67,18 +73,21 @@ lines.append("--   * Each per-alias UPDATE is guarded by FIND_IN_SET(<alias>, ta
 lines.append("--     returns 0 after the first successful apply, so re-runs update 0 rows.")
 lines.append("--")
 lines.append("-- Case-sensitivity defect handled here (board feedback, 2026-06-04 verify):")
-lines.append("--   FIND_IN_SET is collation-insensitive on utf8mb4_general_ci, but REPLACE is")
-lines.append("--   byte-exact. Without normalization, mixed-case alias tags ('IIT', 'tFUS',")
-lines.append("--   'NDE') would pass the FIND_IN_SET guard but be skipped by REPLACE, leaving")
-lines.append("--   the row mid-normalization. We lower-case headlines.tags up front so")
-lines.append("--   every subsequent REPLACE matches every tag the guard sees.")
+lines.append("--   FIND_IN_SET is collation-insensitive on the standard ci collations, but")
+lines.append("--   REPLACE is byte-exact. Without normalization, mixed-case alias tags")
+lines.append("--   ('IIT', 'tFUS', 'NDE') would pass the FIND_IN_SET guard but be skipped")
+lines.append("--   by REPLACE, leaving the row mid-normalization. We lower-case headlines.tags")
+lines.append("--   up front so every subsequent REPLACE matches every tag the guard sees.")
 lines.append("--")
-lines.append("-- Collation alignment (board feedback, 2026-06-04 verify):")
-lines.append("--   tag_aliases is pinned to utf8mb4_general_ci -- the same collation headlines")
-lines.append("--   uses -- so cross-table joins (FIND_IN_SET(a.alias_slug, h.tags), and the")
-lines.append("--   clustering queries the SSCI Digest Editor will run later) do not need an")
-lines.append("--   explicit COLLATE on every clause. Step 1b retro-fixes any existing")
+lines.append("-- Collation alignment (board correction, 2026-06-05 verify):")
+lines.append("--   information_schema ground truth: headlines.tags is utf8mb4_unicode_ci")
+lines.append("--   (the 249-row production table holds non-ASCII content). tag_aliases is")
+lines.append("--   pinned here to match, so cross-table joins (FIND_IN_SET(a.alias_slug,")
+lines.append("--   h.tags), and the clustering queries the SSCI Digest Editor will run later)")
+lines.append("--   do not need an explicit COLLATE clause. Step 1b retro-fixes any existing")
 lines.append("--   deployment that picked up a different collation from the server default.")
+lines.append("--   (The earlier PR #12 had this inverted -- pinning to general_ci preserved")
+lines.append("--   the very mismatch the step was supposed to remove.)")
 lines.append("--")
 lines.append("-- Dedup during migration: for each alias -> canonical, we run two UPDATEs.")
 lines.append("--   (a) If a row contains BOTH the alias and the canonical, delete the alias")
@@ -99,13 +108,14 @@ lines.append("  alias_slug     VARCHAR(100) NOT NULL,")
 lines.append("  canonical_slug VARCHAR(100) NOT NULL,")
 lines.append("  PRIMARY KEY (alias_slug),")
 lines.append("  KEY idx_canonical_slug (canonical_slug)")
-lines.append(") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;")
+lines.append(") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;")
 lines.append("")
 lines.append("-- 1b. Retro-fix the collation in case the table was created earlier under a")
-lines.append("--     different server default (the prod apply on 2026-06-04 picked up")
-lines.append("--     utf8mb4_unicode_ci, which made cross-table FIND_IN_SET fail without")
-lines.append("--     explicit COLLATE clauses). No-op when already aligned.")
-lines.append("ALTER TABLE tag_aliases CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;")
+lines.append("--     different server default (the original prod apply on 2026-06-04 picked")
+lines.append("--     up utf8mb4_general_ci against a headlines table on utf8mb4_unicode_ci,")
+lines.append("--     which made cross-table FIND_IN_SET fail without explicit COLLATE clauses.)")
+lines.append("--     No-op when already aligned.")
+lines.append("ALTER TABLE tag_aliases CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;")
 lines.append("")
 lines.append("-- ---------------------------------------------------------------------------")
 lines.append("-- 2. Populate tag_aliases. REPLACE INTO is idempotent: the primary key is the")
