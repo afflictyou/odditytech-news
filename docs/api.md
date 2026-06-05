@@ -73,7 +73,9 @@ Path param is the `slug` (string).
 ### `PATCH /api/v1/digests/{id}` — update
 
 **Auth required.** Path param is the integer `id` (slug is not accepted here —
-slugs can change, IDs are stable).
+slugs can change, IDs are stable). Note: this differs from
+`PATCH /api/v1/headlines/?id={id}`, which uses a query-string id — digests are
+addressed by URL path.
 
 Any subset of these fields can be updated:
 
