@@ -139,7 +139,7 @@ ksort($allTags);
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Barlow+Condensed:wght@300;400;600;700;900&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/css/style.css?v=1">
+<link rel="stylesheet" href="/assets/css/style.css?v=2">
 </head>
 <body>
 
@@ -164,6 +164,15 @@ ksort($allTags);
     </div>
   </div>
 </header>
+
+<!-- SIG-178: section nav (Feed | Digest). Sits above the category filter so
+     it never interferes with feed pagination or card layout. -->
+<nav class="section-nav" aria-label="Section">
+  <div class="section-nav-inner">
+    <a href="/" class="section-tab active" aria-current="page">Feed</a>
+    <a href="/digest" class="section-tab">Digest</a>
+  </div>
+</nav>
 
 <nav class="category-nav" aria-label="Category">
   <div class="nav-inner">
