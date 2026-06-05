@@ -70,7 +70,7 @@ Each row gives the canonical slug, a short editorial description, and every alia
 | 28 | `materials-science` | Novel materials, graphene, polymers, nanotechnology, dielectrics. | `materials-science`, `materials`, `polymers`, `graphene`, `nanotechnology`, `nanoengineering` |
 | 29 | `chemistry` | Chemistry results not better placed under materials-science or proteins. | `chemistry` |
 | 30 | `energy` | Energy efficiency, energy economics, AI power use, Jevons paradox. | `energy`, `energy-efficiency`, `jevons-paradox`, `extreme-computing`, `ai-economics`, `democratization` |
-| 31 | `memory-systems` | Computing memory architectures: KV-cache, memory chips, memory-compute fusion. | `memory-systems`, `memory`, `memory-chip`, `memory-compute`, `adaptive` |
+| 31 | `memory-systems` | Computing memory architectures: memory chips, memory-compute fusion, adaptive memory hierarchies. (KV-cache aliases to `llm`, not here.) | `memory-systems`, `memory`, `memory-chip`, `memory-compute`, `adaptive` |
 | 32 | `space` | Space, astrobiology, SETI, exoplanets. | `space`, `seti`, `astrobiology`, `exoplanets`, `panspermia` |
 
 ---
