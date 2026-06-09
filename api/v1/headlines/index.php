@@ -182,6 +182,18 @@ if ($method === 'PATCH') {
             'nullable'             => false,
             'reject_empty_string'  => true,
         ],
+        // SIG-343: allow framing corrections post-publish for the same gate-catch
+        // remediation loop. title mirrors POST's 500-char cap; summary has no cap
+        // here because the column is TEXT and POST does not truncate it.
+        'title' => [
+            'max'                  => 500,
+            'nullable'             => false,
+            'reject_empty_string'  => true,
+        ],
+        'summary' => [
+            'nullable'             => false,
+            'reject_empty_string'  => true,
+        ],
     ];
 
     $sets = [];

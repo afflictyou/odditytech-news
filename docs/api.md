@@ -14,6 +14,12 @@ The ingestion path used by the SSCI Integration agent. See the running endpoint
 at `api/v1/headlines/index.php` for the precise contract.
 
 - `POST /api/v1/headlines/` — auth required; creates an `active` headline.
+- `PATCH /api/v1/headlines/?id={id}` — auth required; partial update of a
+  whitelisted set of columns on an existing row. Currently writable:
+  `canonical_paper_url` (SIG-263 / SIG-177), `source_url` and `source_name`
+  (SIG-341, gate-catch provenance fix), `title` and `summary` (SIG-343,
+  gate-catch framing fix). Sending a non-whitelisted field returns
+  `400 No writable fields supplied` with the live `allowed` list.
 
 ---
 
