@@ -169,6 +169,19 @@ if ($method === 'PATCH') {
             'nullable'             => true,
             'reject_empty_string'  => true,
         ],
+        // SIG-341: allow provenance corrections post-publish (gate-catch remediation).
+        // Mirrors POST's contract: both required on insert, so PATCH refuses null
+        // and empty string to avoid clearing a column the row needs.
+        'source_url' => [
+            'max'                  => 2083,
+            'nullable'             => false,
+            'reject_empty_string'  => true,
+        ],
+        'source_name' => [
+            'max'                  => 255,
+            'nullable'             => false,
+            'reject_empty_string'  => true,
+        ],
     ];
 
     $sets = [];
