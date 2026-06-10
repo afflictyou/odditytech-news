@@ -1,0 +1,9 @@
+# SIG-178: the digest/_partials/ files are PHP includes used by
+# digest/index.php and digest/show.php. They must never be served
+# directly over HTTP. Apache 2.2-and-2.4-compatible deny.
+Order allow,deny
+Deny from all
+
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>

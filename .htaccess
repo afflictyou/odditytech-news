@@ -12,6 +12,14 @@ DirectoryIndex index.php index.html
     # neither is "served the homepage as JSON".
     RewriteRule ^api/ - [L]
 
+    # SIG-178: /digest publication. /digest -> digest/index.php (via
+    # DirectoryIndex). /digest/<slug> -> digest/show.php?slug=<slug>.
+    # /digest/_partials/* and any vendor-style internal path is denied
+    # by the partials guard below; the slug pattern is restricted to
+    # a single path segment so it cannot match those paths anyway.
+    RewriteRule ^digest/?$ digest/index.php [QSA,L]
+    RewriteRule ^digest/([A-Za-z0-9_-]+)/?$ digest/show.php?slug=$1 [QSA,L]
+
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteRule ^ index.php [QSA,L]

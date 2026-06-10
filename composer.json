@@ -1,0 +1,19 @@
+{
+  "name": "afflictyou/odditytech-news",
+  "description": "odditytech.news — runtime dependencies (deployed via FTPS to Namecheap shared hosting).",
+  "type": "project",
+  "license": "proprietary",
+  "require": {
+    "php": ">=7.4",
+    "league/commonmark": "^2.4"
+  },
+  "config": {
+    "optimize-autoloader": true,
+    "sort-packages": true,
+    "platform": {
+      "php": "8.2"
+    }
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}

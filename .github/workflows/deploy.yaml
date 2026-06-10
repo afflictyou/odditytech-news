@@ -50,6 +50,32 @@ jobs:
       - name: Checkout repo at the commit being deployed
         uses: actions/checkout@v4
 
+      - name: Set up PHP for composer install
+        # SIG-178: digest/ pages render markdown through league/commonmark,
+        # which is pulled in via composer. vendor/ is .gitignored — built
+        # here on each deploy so prod always matches composer.lock.
+        # PHP target matches Namecheap's PHP 8.2 (see healthz.php_version).
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: composer:v2
+          coverage: none
+
+      - name: Install composer dependencies (production only)
+        # `--no-dev` keeps phpunit etc. out of the FTPS upload.
+        # `--prefer-dist` is faster than git clone for transitive deps.
+        # `--no-progress` silences interactive output in CI logs.
+        run: |
+          if [ -f composer.json ]; then
+            composer install \
+              --no-dev \
+              --no-progress \
+              --prefer-dist \
+              --optimize-autoloader
+          else
+            echo "No composer.json — skipping composer install."
+          fi
+
       - name: FTPS deploy to Namecheap public_html
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
@@ -80,6 +106,8 @@ jobs:
             **/docs/**
             **/.vscode/**
             **/.idea/**
+            composer.json
+            composer.lock
 
       - name: Reset PHP OPcache on production (best-effort)
         # SIG-252: shared LiteSpeed/LSAPI caches PHP bytecode across requests.
