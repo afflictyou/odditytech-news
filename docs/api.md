@@ -2,6 +2,8 @@
 
 Base path: `/api/v1/`
 Auth (for ingestion + editorial endpoints): `X-API-KEY: <INGEST_API_KEY>` header.
+Auth (publish PATCH on `/api/v1/digests/`): `X-API-KEY: <PUBLISHER_API_KEY>` header.
+See "Auth model" in each endpoint for which key is accepted where.
 Content type: `application/json` on requests with bodies and on all responses.
 
 This file is the canonical reference for the public REST surface.
@@ -35,10 +37,19 @@ editorial cluster headline this digest leads with), `slug` (URL key), `status`
 
 ### Auth model
 
+Two distinct keys are accepted on this endpoint (SIG-290 two-key boundary):
+
 - **Public (no `X-API-KEY`):** can only see `status=published`. Drafts are
   invisible — list/detail endpoints behave as if drafts do not exist.
-- **Authenticated (valid `X-API-KEY`):** can see drafts and create/edit
-  digests.
+- **Editor (`INGEST_API_KEY`):** can `GET` drafts, `POST` new digests, and
+  `PATCH` content fields. **Cannot** flip status to `published` — returns
+  `403` once `PUBLISHER_API_KEY` is configured.
+- **Publisher (`PUBLISHER_API_KEY`):** can `GET` drafts and `PATCH
+  {"status":"published"}` only. **Cannot** `POST`. **Cannot** PATCH content
+  fields or `status=draft` — returns `403` for any write that isn't a publish.
+
+See [`docs/digest_workflow.md`](digest_workflow.md) §"Two-key boundary" for
+the full role table and provisioning steps.
 
 ### `POST /api/v1/digests/` — create
 
@@ -93,7 +104,13 @@ Publish workflow:
   `published_at` was `NULL`, stamps it to `NOW()`. Already-published rows
   keep their original `published_at`.
 - To explicitly override the publish timestamp (e.g. backdating), include
-  `"published_at": "YYYY-MM-DD HH:MM:SS"` in the same PATCH.
+  `"published_at": "YYYY-MM-DD HH:MM:SS"` in the same PATCH. Editor key must
+  do this in a separate PATCH that does **not** set `status=published`, since
+  the Editor key is forbidden from publishing once `PUBLISHER_API_KEY` is
+  configured. Conversely, the publisher key cannot set `published_at`.
+- Publish PATCH must use `PUBLISHER_API_KEY` (X-API-KEY header). The Editor
+  key (`INGEST_API_KEY`) returns `403 Editor key cannot publish` for any PATCH
+  body containing `"status":"published"`.
 
 Response: `200 OK` with the updated row. `404` if id not found.
 `409 Conflict` if changing `slug` to a value already used by another row.

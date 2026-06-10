@@ -39,14 +39,33 @@ function fail(int $code, string $msg, array $extra = []): void {
     exit;
 }
 
+// Returns the role of the X-API-KEY presented on this request:
+//   - 'publisher' : matches PUBLISHER_API_KEY (CEO publish key, narrow-scoped).
+//   - 'editor'    : matches INGEST_API_KEY  (Editor key — drafts only for publish PATCH).
+//   - ''          : no/invalid key.
+// Publisher takes precedence so the same value cannot accidentally degrade to editor.
+function authed_key_role(): string {
+    $publisherKey = $_ENV['PUBLISHER_API_KEY'] ?? '';
+    $editorKey    = $_ENV['INGEST_API_KEY']    ?? '';
+    $provided     = $_SERVER['HTTP_X_API_KEY'] ?? '';
+    if ($provided === '') return '';
+    if ($publisherKey !== '' && hash_equals($publisherKey, $provided)) return 'publisher';
+    if ($editorKey    !== '' && hash_equals($editorKey,    $provided)) return 'editor';
+    return '';
+}
+
 function is_authed(): bool {
-    $apiKey = $_ENV['INGEST_API_KEY'] ?? '';
-    $provided = $_SERVER['HTTP_X_API_KEY'] ?? '';
-    return $apiKey !== '' && $provided !== '' && hash_equals($apiKey, $provided);
+    return authed_key_role() !== '';
 }
 
 function require_auth(): void {
     if (!is_authed()) fail(401, 'Unauthorized');
+}
+
+// Strict mode applies once PUBLISHER_API_KEY is configured on the server.
+// Until rotation, INGEST_API_KEY retains compat publish (instruction-enforced as before).
+function publisher_split_enforced(): bool {
+    return !empty($_ENV['PUBLISHER_API_KEY']);
 }
 
 function slugify(string $s): string {
@@ -104,7 +123,11 @@ if ($method === 'POST' && $path === '') {
 
 // --- POST /api/v1/digests/ --------------------------------------------------
 function handle_create(PDO $pdo): void {
-    require_auth();
+    $role = authed_key_role();
+    if ($role === '') fail(401, 'Unauthorized');
+    if ($role === 'publisher') {
+        fail(403, 'Publisher key cannot create digests; use INGEST_API_KEY');
+    }
 
     $body = json_decode(file_get_contents('php://input'), true);
     if (!is_array($body)) fail(400, 'Invalid JSON');
@@ -217,13 +240,39 @@ function handle_get_by_slug(PDO $pdo, string $slug): void {
 
 // --- PATCH /api/v1/digests/{id} ---------------------------------------------
 function handle_patch(PDO $pdo, string $idPath): void {
-    require_auth();
+    $role = authed_key_role();
+    if ($role === '') fail(401, 'Unauthorized');
 
     if (!ctype_digit($idPath)) fail(400, 'PATCH expects a numeric id in the path');
     $id = (int)$idPath;
 
     $body = json_decode(file_get_contents('php://input'), true);
     if (!is_array($body)) fail(400, 'Invalid JSON');
+
+    // Two-key boundary (SIG-290): only PUBLISHER_API_KEY can flip status to published
+    // once the publisher key is configured on the server. INGEST_API_KEY remains the
+    // Editor key — drafts only. Publisher key, conversely, can ONLY publish: it cannot
+    // write content fields or move a row back to draft.
+    $touchesStatus = array_key_exists('status', $body);
+    $newStatus     = $touchesStatus ? $body['status'] : null;
+
+    if ($role === 'editor' && publisher_split_enforced()
+        && $touchesStatus && $newStatus === 'published') {
+        fail(403, 'Editor key cannot publish; use PUBLISHER_API_KEY');
+    }
+
+    if ($role === 'publisher') {
+        // Publisher key is publish-only: must set status=published, must not touch
+        // anything else, and must not write draft.
+        if (!$touchesStatus || $newStatus !== 'published') {
+            fail(403, 'Publisher key may only PATCH status=published');
+        }
+        foreach (['title', 'summary', 'body_markdown', 'lead_cluster', 'slug', 'published_at'] as $f) {
+            if (array_key_exists($f, $body)) {
+                fail(403, 'Publisher key may not modify ' . $f);
+            }
+        }
+    }
 
     $stmt = $pdo->prepare('SELECT * FROM digests WHERE id = :id');
     $stmt->execute([':id' => $id]);
