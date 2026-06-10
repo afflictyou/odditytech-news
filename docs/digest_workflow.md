@@ -17,13 +17,33 @@ References:
 
 | Role | Agent | What they can do | What they cannot do |
 | --- | --- | --- | --- |
-| Editor | SSCI Digest Editor | Read SSCI corpus (`/api/v1/headlines/`, `research_log.json`). `POST /api/v1/digests/` and `PATCH /api/v1/digests/{id}` for drafts. | Cannot publish — must not send `status=published`. |
-| Publisher | CEO | Reviews the draft, requests changes, or publishes. | — |
+| Editor | SSCI Digest Editor | Read SSCI corpus (`/api/v1/headlines/`, `research_log.json`). `POST /api/v1/digests/` and `PATCH /api/v1/digests/{id}` for drafts (everything except flipping status to `published`). | Cannot publish — server returns `403` on `PATCH {"status":"published"}` from the Editor key. |
+| Publisher | CEO | Reviews the draft, requests changes, or publishes via `scripts/publish-digest.sh`. | Cannot create digests (`POST` returns `403`) and cannot edit content fields on PATCH — publisher key is publish-only. |
 
-The endpoint accepts `status=published` from any holder of `INGEST_API_KEY`,
-so this division of labour is currently enforced by agent instructions rather
-than by API permissions. If the policy needs to be hardened, scope a CTO task
-to add a separate "publisher" key or per-agent ACL.
+### Two-key boundary (SIG-290)
+
+Two distinct API keys land at the digests endpoint. The server matches the
+incoming `X-API-KEY` header against both and routes by role:
+
+| Env var | Holder | Allowed |
+| --- | --- | --- |
+| `INGEST_API_KEY` | SSCI Digest Editor (also SSCI Integration for `/api/v1/headlines/`) | `POST /api/v1/digests/`, `PATCH` of `title`/`summary`/`body_markdown`/`lead_cluster`/`slug`/`status=draft`. **Cannot** PATCH `status=published`. |
+| `PUBLISHER_API_KEY` | CEO (local `publish-digest.sh`) | `GET` (read drafts) and `PATCH {"status":"published"}` only. **Cannot** POST. **Cannot** PATCH any other field or `status=draft`. |
+
+The split is structural: any rogue or misled call from the Editor key cannot
+publish, and a leaked publisher key cannot create or modify draft content.
+
+**Enforcement bootstrap.** The 403-on-Editor-publish rule kicks in as soon as
+`PUBLISHER_API_KEY` is set in the server `.env`. Until that day-one rotation,
+the endpoint falls back to the pre-SIG-290 behaviour (Editor key publish
+allowed, instruction-enforced). This is intentional: the code can ship before
+the key is rotated and the boundary tightens the moment the key lands.
+
+**Provisioning.** The publisher key is rotated by the CEO via cPanel:
+1. Generate a high-entropy random value (e.g. `openssl rand -hex 32`).
+2. Add `PUBLISHER_API_KEY=<value>` to the server `.env` (same file that holds `INGEST_API_KEY`).
+3. Add the same value to the CEO's local repo `.env` so `scripts/publish-digest.sh` can read it.
+4. Verify (see "Verification" below).
 
 ---
 
@@ -80,7 +100,7 @@ The Editor creates a child Paperclip issue assigned to CEO:
     (auth required to render — drafts are 404 to anonymous callers),
   - two CTAs:
     - **Approve & publish:** run `scripts/publish-digest.sh {slug}` from a
-      checkout of this repo on a host with `INGEST_API_KEY` in env.
+      checkout of this repo on a host with `PUBLISHER_API_KEY` in env.
     - **Request changes:** comment on the issue with the change list; the
       Editor will revise via `PATCH /api/v1/digests/{id}` and update the
       issue.
@@ -118,10 +138,38 @@ What it does:
 3. Verifies the row is now publicly reachable via unauthenticated
    `GET /api/v1/digests/{slug}`.
 
-Exit non-zero on: missing `INGEST_API_KEY`, slug not found, already
+Exit non-zero on: missing `PUBLISHER_API_KEY`, slug not found, already
 published, PATCH failure, or unauthenticated GET not returning 200.
 
 Numeric ids are also accepted: `scripts/publish-digest.sh 42`.
+
+---
+
+## Verification (SIG-290 acceptance)
+
+After rotating `PUBLISHER_API_KEY` into the server `.env`:
+
+```sh
+# 1. Confirm the Editor key gets 403 on PATCH-to-publish (use any current draft id).
+curl -i -X PATCH \
+  -H "X-API-KEY: $INGEST_API_KEY" \
+  -H "Content-Type: application/json" \
+  --data '{"status":"published"}' \
+  https://odditytech.news/api/v1/digests/<draft-id>
+# Expect: HTTP/1.1 403 ... "Editor key cannot publish; use PUBLISHER_API_KEY"
+
+# 2. Confirm the publisher key successfully publishes the same draft.
+PUBLISHER_API_KEY=$PUBLISHER_API_KEY scripts/publish-digest.sh <draft-slug>
+# Expect: published_at stamped, public GET returns 200.
+
+# 3. Confirm publisher key cannot create.
+curl -i -X POST \
+  -H "X-API-KEY: $PUBLISHER_API_KEY" \
+  -H "Content-Type: application/json" \
+  --data '{"title":"x","body_markdown":"x"}' \
+  https://odditytech.news/api/v1/digests/
+# Expect: HTTP/1.1 403 ... "Publisher key cannot create digests"
+```
 
 ---
 
@@ -146,10 +194,11 @@ row preserves the original `published_at` (the endpoint only stamps when
 
 ## Operational notes
 
-- **Where the key lives.** `INGEST_API_KEY` lives in the server `.env` (loaded
-  by `api/v1/digests/index.php`). The same key is used by SSCI Integration
-  for `/api/v1/headlines/`. The CEO's local checkout reads it from a `.env`
-  at the repo root or directly from the environment.
+- **Where the keys live.** Both `INGEST_API_KEY` and `PUBLISHER_API_KEY` live
+  in the server `.env` (loaded by `api/v1/digests/index.php`). `INGEST_API_KEY`
+  is also used by SSCI Integration for `/api/v1/headlines/`; `PUBLISHER_API_KEY`
+  is digests-only. The CEO's local checkout reads `PUBLISHER_API_KEY` from a
+  `.env` at the repo root or directly from the environment.
 - **Skip if active.** The routine uses `skip_if_active` — if the previous
   week's run issue is still `in_progress` or `in_review`, the new trigger is
   recorded as skipped and no duplicate issue is created. Resolve the prior
