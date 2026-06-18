@@ -14,18 +14,21 @@
 --     returns 0 after the first successful apply, so re-runs update 0 rows.
 --
 -- Case-sensitivity defect handled here (board feedback, 2026-06-04 verify):
---   FIND_IN_SET is collation-insensitive on utf8mb4_general_ci, but REPLACE is
---   byte-exact. Without normalization, mixed-case alias tags ('IIT', 'tFUS',
---   'NDE') would pass the FIND_IN_SET guard but be skipped by REPLACE, leaving
---   the row mid-normalization. We lower-case headlines.tags up front so
---   every subsequent REPLACE matches every tag the guard sees.
+--   FIND_IN_SET is collation-insensitive on the standard ci collations, but
+--   REPLACE is byte-exact. Without normalization, mixed-case alias tags
+--   ('IIT', 'tFUS', 'NDE') would pass the FIND_IN_SET guard but be skipped
+--   by REPLACE, leaving the row mid-normalization. We lower-case headlines.tags
+--   up front so every subsequent REPLACE matches every tag the guard sees.
 --
--- Collation alignment (board feedback, 2026-06-04 verify):
---   tag_aliases is pinned to utf8mb4_general_ci -- the same collation headlines
---   uses -- so cross-table joins (FIND_IN_SET(a.alias_slug, h.tags), and the
---   clustering queries the SSCI Digest Editor will run later) do not need an
---   explicit COLLATE on every clause. Step 1b retro-fixes any existing
+-- Collation alignment (board correction, 2026-06-05 verify):
+--   information_schema ground truth: headlines.tags is utf8mb4_unicode_ci
+--   (the 249-row production table holds non-ASCII content). tag_aliases is
+--   pinned here to match, so cross-table joins (FIND_IN_SET(a.alias_slug,
+--   h.tags), and the clustering queries the SSCI Digest Editor will run later)
+--   do not need an explicit COLLATE clause. Step 1b retro-fixes any existing
 --   deployment that picked up a different collation from the server default.
+--   (The earlier PR #12 had this inverted -- pinning to general_ci preserved
+--   the very mismatch the step was supposed to remove.)
 --
 -- Dedup during migration: for each alias -> canonical, we run two UPDATEs.
 --   (a) If a row contains BOTH the alias and the canonical, delete the alias
@@ -46,13 +49,14 @@ CREATE TABLE IF NOT EXISTS tag_aliases (
   canonical_slug VARCHAR(100) NOT NULL,
   PRIMARY KEY (alias_slug),
   KEY idx_canonical_slug (canonical_slug)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 1b. Retro-fix the collation in case the table was created earlier under a
---     different server default (the prod apply on 2026-06-04 picked up
---     utf8mb4_unicode_ci, which made cross-table FIND_IN_SET fail without
---     explicit COLLATE clauses). No-op when already aligned.
-ALTER TABLE tag_aliases CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+--     different server default (the original prod apply on 2026-06-04 picked
+--     up utf8mb4_general_ci against a headlines table on utf8mb4_unicode_ci,
+--     which made cross-table FIND_IN_SET fail without explicit COLLATE clauses.)
+--     No-op when already aligned.
+ALTER TABLE tag_aliases CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
 -- 2. Populate tag_aliases. REPLACE INTO is idempotent: the primary key is the

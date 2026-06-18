@@ -5,6 +5,13 @@
 -- Run once against the target database before the digests API can serve traffic.
 --
 --   mysql -u oddimfjz_agent -p oddimfjz_headlinestore < docs/migrations/0002_digests.sql
+--
+-- Collation: pinned to utf8mb4_unicode_ci so the table aligns with the
+-- production `headlines` table (verified via information_schema 2026-06-05).
+-- The retro-fix ALTER at the bottom is a no-op on fresh installs and corrects
+-- earlier prod environments where the table was created under the server
+-- default (utf8mb4_general_ci) and then required explicit COLLATE clauses on
+-- every cross-table join. See SIG-181 thread for the diagnosis.
 
 USE oddimfjz_headlinestore;
 
@@ -22,4 +29,8 @@ CREATE TABLE IF NOT EXISTS digests (
   UNIQUE KEY uk_slug (slug),
   KEY idx_status_published_at (status, published_at DESC),
   KEY idx_published_at (published_at DESC)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Retro-fix the collation when an earlier apply picked up the server default
+-- (utf8mb4_general_ci). No-op when already aligned.
+ALTER TABLE digests CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
