@@ -115,7 +115,8 @@ if ($method === 'GET') {
 
     $sql = '
         SELECT id, title, summary, source_url, source_name, category, tags,
-               published_at, canonical_paper_url
+               published_at, canonical_paper_url,
+               source_published_at, source_published_at_known, oddity_surfaced_at
         FROM headlines
     ';
     if ($where) {
@@ -129,11 +130,14 @@ if ($method === 'GET') {
 
     foreach ($rows as &$row) {
         $row['id'] = (int)$row['id'];
-        if (!empty($row['published_at'])) {
-            // Persisted as MySQL DATETIME in UTC; surface as ISO-8601 with explicit Z offset.
-            $dt = DateTimeImmutable::createFromFormat('Y-m-d H:i:s', (string)$row['published_at'], new DateTimeZone('UTC'));
-            if ($dt !== false) {
-                $row['published_at'] = $dt->format('Y-m-d\TH:i:s\Z');
+        $row['source_published_at_known'] = (int)$row['source_published_at_known'];
+        foreach (['published_at', 'source_published_at', 'oddity_surfaced_at'] as $col) {
+            if (!empty($row[$col])) {
+                // Persisted as MySQL DATETIME in UTC; surface as ISO-8601 with explicit Z offset.
+                $dt = DateTimeImmutable::createFromFormat('Y-m-d H:i:s', (string)$row[$col], new DateTimeZone('UTC'));
+                if ($dt !== false) {
+                    $row[$col] = $dt->format('Y-m-d\TH:i:s\Z');
+                }
             }
         }
     }
@@ -260,7 +264,8 @@ if ($method === 'PATCH') {
 
     $sel = $pdo->prepare('
         SELECT id, title, summary, source_url, source_name, category, tags,
-               published_at, canonical_paper_url
+               published_at, canonical_paper_url,
+               source_published_at, source_published_at_known, oddity_surfaced_at
         FROM headlines
         WHERE id = :id
     ');
@@ -268,10 +273,13 @@ if ($method === 'PATCH') {
     $row = $sel->fetch(PDO::FETCH_ASSOC);
     if ($row) {
         $row['id'] = (int)$row['id'];
-        if (!empty($row['published_at'])) {
-            $dt = DateTimeImmutable::createFromFormat('Y-m-d H:i:s', (string)$row['published_at'], new DateTimeZone('UTC'));
-            if ($dt !== false) {
-                $row['published_at'] = $dt->format('Y-m-d\TH:i:s\Z');
+        $row['source_published_at_known'] = (int)$row['source_published_at_known'];
+        foreach (['published_at', 'source_published_at', 'oddity_surfaced_at'] as $col) {
+            if (!empty($row[$col])) {
+                $dt = DateTimeImmutable::createFromFormat('Y-m-d H:i:s', (string)$row[$col], new DateTimeZone('UTC'));
+                if ($dt !== false) {
+                    $row[$col] = $dt->format('Y-m-d\TH:i:s\Z');
+                }
             }
         }
     }
@@ -310,10 +318,33 @@ if (isset($body['canonical_paper_url']) && $body['canonical_paper_url'] !== '') 
     $canonicalPaperUrl = substr((string)$body['canonical_paper_url'], 0, 512);
 }
 
-// Insert headline
+// SIG-398: source_published_at from ingest payload (set once; never overwritten).
+// Accepts YYYY-MM-DD or YYYY-MM (normalised to first of month). Any other shape
+// is silently treated as unknown so a malformed value doesn't drop the card.
+$sourcePublishedAt = null;
+$sourcePublishedAtKnown = 0;
+if (!empty($body['source_published_at'])) {
+    $spat = (string)$body['source_published_at'];
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $spat)) {
+        $sourcePublishedAt = $spat . ' 00:00:00';
+        $sourcePublishedAtKnown = 1;
+    } elseif (preg_match('/^\d{4}-\d{2}$/', $spat)) {
+        $sourcePublishedAt = $spat . '-01 00:00:00';
+        $sourcePublishedAtKnown = 1;
+    }
+}
+
+// Insert headline. oddity_surfaced_at is set to NOW() server-side so it
+// reflects true corpus-entry time, not client clock. source_published_at and
+// source_published_at_known are written once here and are not in the PATCH
+// whitelist, so they cannot drift on subsequent updates.
 $stmt = $pdo->prepare('
-    INSERT INTO headlines (title, summary, source_url, source_name, category, tags, published_at, canonical_paper_url)
-    VALUES (:title, :summary, :source_url, :source_name, :category, :tags, :published_at, :canonical_paper_url)
+    INSERT INTO headlines (title, summary, source_url, source_name, category, tags,
+                           published_at, canonical_paper_url,
+                           source_published_at, source_published_at_known, oddity_surfaced_at)
+    VALUES (:title, :summary, :source_url, :source_name, :category, :tags,
+            :published_at, :canonical_paper_url,
+            :source_published_at, :source_published_at_known, NOW())
 ');
 
 // SIG-181: resolve free-form tags through the canonical alias map before
@@ -328,14 +359,16 @@ if (isset($body['tags'])) {
 }
 
 $stmt->execute([
-    ':title'               => substr($body['title'], 0, 500),
-    ':summary'             => $body['summary'],
-    ':source_url'          => substr($body['source_url'], 0, 2083),
-    ':source_name'         => substr($body['source_name'], 0, 255),
-    ':category'            => substr($body['category'], 0, 100),
-    ':tags'                => $normalizedTags,
-    ':published_at'        => $body['published_at'] ?? date('Y-m-d H:i:s'),
-    ':canonical_paper_url' => $canonicalPaperUrl,
+    ':title'                    => substr($body['title'], 0, 500),
+    ':summary'                  => $body['summary'],
+    ':source_url'               => substr($body['source_url'], 0, 2083),
+    ':source_name'              => substr($body['source_name'], 0, 255),
+    ':category'                 => substr($body['category'], 0, 100),
+    ':tags'                     => $normalizedTags,
+    ':published_at'             => $body['published_at'] ?? date('Y-m-d H:i:s'),
+    ':canonical_paper_url'      => $canonicalPaperUrl,
+    ':source_published_at'      => $sourcePublishedAt,
+    ':source_published_at_known'=> $sourcePublishedAtKnown,
 ]);
 
 http_response_code(201);
